@@ -34,3 +34,13 @@ yarn-error.log*
 .DS_Store
 .idea/
 .vscode/
+
+# Agent instructions / planning (private — not pushed to GitHub)
+SPRINT_*.md
+DONE_*.md
+PROGRESS.md
+.plan.md
+AGENTS.md
+EVALS.md
+web/AGENTS.md
+web/CLAUDE.md
