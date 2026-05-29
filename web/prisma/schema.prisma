@@ -1,0 +1,46 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum EventMode {
+  simple
+  secure
+}
+
+model Event {
+  id                 String      @id @default(cuid())
+  onchainEventId     BigInt      @unique
+  name               String
+  mode               EventMode   @default(simple)
+  signerAddress      String
+  encryptedSignerKey String
+  startTime          DateTime
+  endTime            DateTime
+  maxSupply          Int
+  metadataUri        String
+  paymasterSpent     Int         @default(0)
+  paymasterBudget    Int?
+  createdAt          DateTime    @default(now())
+  claims             ClaimToken[]
+}
+
+model ClaimToken {
+  id        String   @id @default(cuid())
+  eventId   String
+  claimUUID String   @unique
+  signature String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  recipient String?
+  txHash    String?
+  createdAt DateTime @default(now())
+  event     Event    @relation(fields: [eventId], references: [id])
+
+  @@index([eventId])
+  @@index([expiresAt])
+}
