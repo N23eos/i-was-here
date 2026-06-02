@@ -6,6 +6,26 @@ import { buildMetadataUri } from '@/lib/metadata'
 import { publicClient, getDeployerWalletClient } from '@/lib/server/clients'
 import { attendanceNftAbi, attendanceNftAddress } from '@/lib/contract'
 
+// GET /api/events — список событий (для дашборда организатора).
+export async function GET() {
+  const events = await prisma.event.findMany({
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      name: true,
+      mode: true,
+      onchainEventId: true,
+      maxSupply: true,
+      startTime: true,
+      endTime: true,
+      createdAt: true,
+    },
+  })
+  return NextResponse.json(
+    events.map((e) => ({ ...e, onchainEventId: e.onchainEventId.toString() })),
+  )
+}
+
 // POST /api/events — создать событие (организатор).
 // MVP: без auth (testnet). Sprint 04 добавит. deployer key — server-only.
 // body: { name, mode?, startTime, endTime, maxSupply }
@@ -112,8 +132,10 @@ function toUnix(v: string | number): number {
 }
 
 async function uniqueEventId(): Promise<bigint> {
+  // 7 байт = 56 бит (макс ~7.2e16): помещается в signed int64 Postgres (макс ~9.2e18).
+  // Контракт принимает uint256, ограничение только со стороны БД. Коллизии ничтожны.
   for (let i = 0; i < 5; i++) {
-    const id = BigInt('0x' + randomBytes(8).toString('hex'))
+    const id = BigInt('0x' + randomBytes(7).toString('hex'))
     const exists = await prisma.event.findUnique({ where: { onchainEventId: id } })
     if (!exists) return id
   }

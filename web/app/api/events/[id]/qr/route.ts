@@ -1,44 +1,53 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { randomBytes } from 'node:crypto'
-import { toHex } from 'viem'
 import { prisma } from '@/lib/db'
-import { decryptKey } from '@/lib/crypto'
-import { signClaim } from '@/lib/signing'
+import { mintClaimTokens } from '@/lib/server/claims'
+import { qrDataUrl } from '@/lib/qr'
+import { buildStickerSheet } from '@/lib/pdf'
 
-const TTL_MIN = 30 // simple-mode TTL (Locked)
+const TTL_MS = 30 * 60_000 // simple-mode 30 мин (Locked)
 const MAX_COUNT = 200
 
-// POST /api/events/[id]/qr?count=N — сгенерить N claim-токенов (simple mode).
-// Каждый токен: одноразовый claimUUID + подпись signer-ключа события.
+// POST /api/events/[id]/qr?count=N&format=json|pdf
+//   json (default): токены + QR PNG data-url.
+//   pdf: лист стикеров A4 (application/pdf).
 export async function POST(
   request: NextRequest,
   ctx: RouteContext<'/api/events/[id]/qr'>,
 ) {
   const { id } = await ctx.params
-  const count = Math.min(
-    Math.max(1, Number(new URL(request.url).searchParams.get('count') ?? '1')),
-    MAX_COUNT,
-  )
+  const sp = new URL(request.url).searchParams
+  const count = Math.min(Math.max(1, Number(sp.get('count') ?? '1')), MAX_COUNT)
+  const format = sp.get('format') ?? 'json'
 
   const event = await prisma.event.findUnique({ where: { id } })
   if (!event) {
     return NextResponse.json({ error: 'event not found' }, { status: 404 })
   }
 
-  const privateKey = decryptKey(event.encryptedSignerKey) as `0x${string}`
-  const expiresAt = new Date(Date.now() + TTL_MIN * 60_000)
+  const minted = await mintClaimTokens(event.id, count, TTL_MS)
   const baseUrl = new URL(request.url).origin
+  const urls = minted.map((m) => `${baseUrl}/claim/${m.token}`)
 
-  const tokens: { token: string; url: string }[] = []
-  for (let i = 0; i < count; i++) {
-    const claimUUID = toHex(randomBytes(32))
-    const signature = await signClaim(claimUUID, event.onchainEventId, privateKey)
-
-    const ct = await prisma.claimToken.create({
-      data: { eventId: event.id, claimUUID, signature, expiresAt },
+  if (format === 'pdf') {
+    const pdf = await buildStickerSheet(event.name, urls)
+    return new NextResponse(pdf as BodyInit, {
+      headers: {
+        'content-type': 'application/pdf',
+        'content-disposition': `attachment; filename="${slug(event.name)}-stickers.pdf"`,
+      },
     })
-    tokens.push({ token: ct.id, url: `${baseUrl}/claim/${ct.id}` })
   }
 
-  return NextResponse.json({ count: tokens.length, expiresAt, tokens })
+  const tokens = await Promise.all(
+    minted.map(async (m, i) => ({
+      token: m.token,
+      url: urls[i],
+      qr: await qrDataUrl(urls[i]),
+    })),
+  )
+  return NextResponse.json({ count: tokens.length, tokens })
+}
+
+function slug(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'event'
 }
