@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="48" fill="#0052FF"/>
+  <circle cx="256" cy="200" r="96" fill="#fff" opacity="0.15"/>
+  <text x="256" y="220" font-family="system-ui, sans-serif" font-size="120" font-weight="700" fill="#fff" text-anchor="middle">✓</text>
+  <text x="256" y="360" font-family="system-ui, sans-serif" font-size="44" font-weight="700" fill="#fff" text-anchor="middle">I Was Here</text>
+  <text x="256" y="408" font-family="system-ui, sans-serif" font-size="24" fill="#fff" opacity="0.8" text-anchor="middle">Proof of Attendance</text>
+</svg>
