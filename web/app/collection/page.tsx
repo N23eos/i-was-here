@@ -72,15 +72,20 @@ export default function CollectionPage() {
         ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
             {owned.map((e) => (
-              <Card key={e.id} className="flex flex-col items-center gap-3 text-center">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/badge-placeholder.svg"
-                  alt={e.name}
-                  width={96}
-                  height={96}
-                  className="rounded-xl"
-                />
+              <Card
+                key={e.id}
+                className="flex flex-col items-center gap-3 text-center transition hover:-translate-y-0.5 hover:shadow-md"
+              >
+                <div className="rounded-2xl bg-gradient-to-br from-[#0052FF]/10 to-transparent p-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src="/badge-placeholder.svg"
+                    alt={e.name}
+                    width={88}
+                    height={88}
+                    className="rounded-xl"
+                  />
+                </div>
                 <div className="text-sm font-semibold text-gray-900 dark:text-white">
                   {e.name}
                 </div>

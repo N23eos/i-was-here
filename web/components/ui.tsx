@@ -1,5 +1,6 @@
 // Лёгкие переиспользуемые UI-примитивы (Tailwind). Единый стиль дашборда.
 import type { ReactNode, ButtonHTMLAttributes, InputHTMLAttributes } from 'react'
+import { NavBar } from './NavBar'
 
 export function PageShell({
   title,
@@ -13,8 +14,9 @@ export function PageShell({
   action?: ReactNode
 }) {
   return (
-    <main className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      <div className="mx-auto max-w-3xl px-5 py-10">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+      <NavBar />
+      <main className="mx-auto max-w-3xl px-5 py-10">
         <header className="mb-8 flex items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
@@ -27,8 +29,8 @@ export function PageShell({
           {action}
         </header>
         {children}
-      </div>
-    </main>
+      </main>
+    </div>
   )
 }
 

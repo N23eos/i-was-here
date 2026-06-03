@@ -87,65 +87,85 @@ export function ClaimClient({ token }: { token: string }) {
 
   return (
     <Shell>
-      <h1 className="text-2xl font-bold">{claim.eventName}</h1>
-      <p className="text-gray-500">Claim your proof-of-attendance badge.</p>
+      <div className="w-full max-w-sm rounded-3xl border border-gray-200 bg-white p-8 text-center shadow-xl dark:border-gray-800 dark:bg-gray-900">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/badge-placeholder.svg"
+          alt={claim.eventName}
+          width={120}
+          height={120}
+          className={`mx-auto rounded-2xl transition ${
+            isConfirmed ? '' : 'opacity-90'
+          }`}
+        />
+        <h1 className="mt-5 text-2xl font-bold text-gray-900 dark:text-white">
+          {claim.eventName}
+        </h1>
+        <p className="mt-1 text-sm text-gray-500">
+          Proof-of-attendance badge
+        </p>
 
-      {!isConnected ? (
-        <div className="flex flex-col items-center gap-2">
-          <WalletButton />
-          <p className="mt-1 max-w-xs text-center text-xs text-gray-400">
-            On Base Sepolia testnet. If a wallet says &quot;network not
-            supported&quot;, use MetaMask or Rabby.
-          </p>
-        </div>
-      ) : isConfirmed ? (
-        <div className="space-y-2 text-center">
-          <p className="text-green-600 font-semibold">✓ Badge claimed!</p>
-          <a
-            href={`https://sepolia.basescan.org/tx/${txHash}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-600 underline text-sm"
-          >
-            View transaction
-          </a>
-        </div>
-      ) : (
-        <div className="space-y-3 text-center">
-          {chainId !== baseSepolia.id && (
-            <p className="text-amber-600 text-sm">
-              Wrong network — claiming will switch you to Base Sepolia.
-            </p>
+        <div className="mt-6">
+          {!isConnected ? (
+            <div className="flex flex-col items-center gap-2">
+              <WalletButton />
+              <p className="mt-1 text-xs text-gray-400">
+                On Base Sepolia. Use MetaMask or Rabby if a wallet says
+                &quot;network not supported&quot;.
+              </p>
+            </div>
+          ) : isConfirmed ? (
+            <div className="space-y-3">
+              <div className="rounded-xl bg-green-50 px-4 py-3 font-semibold text-green-700 dark:bg-green-950/40 dark:text-green-400">
+                ✓ Badge claimed!
+              </div>
+              <a
+                href={`https://sepolia.basescan.org/tx/${txHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-[#0052FF] underline"
+              >
+                View transaction
+              </a>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {chainId !== baseSepolia.id && (
+                <p className="text-sm text-amber-600">
+                  Wrong network — claiming switches you to Base Sepolia.
+                </p>
+              )}
+              <button
+                onClick={handleClaim}
+                disabled={isPending || isConfirming}
+                className="w-full rounded-xl bg-[#0052FF] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#0042cc] disabled:opacity-50"
+              >
+                {isPending
+                  ? 'Confirm in wallet…'
+                  : isConfirming
+                    ? 'Minting…'
+                    : chainId !== baseSepolia.id
+                      ? 'Switch network'
+                      : 'Claim badge'}
+              </button>
+              {writeError && (
+                <p className="text-sm text-red-600">
+                  {writeError.message.includes('ClaimUsed')
+                    ? 'This claim was already used.'
+                    : writeError.message.slice(0, 140)}
+                </p>
+              )}
+            </div>
           )}
-          <button
-            onClick={handleClaim}
-            disabled={isPending || isConfirming}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-          >
-            {isPending
-              ? 'Confirm in wallet…'
-              : isConfirming
-                ? 'Minting…'
-                : chainId !== baseSepolia.id
-                  ? 'Switch network'
-                  : 'Claim badge'}
-          </button>
-          {writeError && (
-            <p className="text-red-600 text-sm">
-              {writeError.message.includes('ClaimUsed')
-                ? 'This claim was already used.'
-                : writeError.message.slice(0, 140)}
-            </p>
-          )}
         </div>
-      )}
+      </div>
     </Shell>
   )
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-8 gap-6">
+    <main className="flex min-h-screen flex-col items-center justify-center bg-gray-50 p-6 dark:bg-gray-950">
       {children}
     </main>
   )
