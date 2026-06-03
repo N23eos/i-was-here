@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import {
   useAccount,
-  useConnect,
   useChainId,
   useSwitchChain,
   useWriteContract,
@@ -11,6 +10,7 @@ import {
 } from 'wagmi'
 import { baseSepolia } from 'wagmi/chains'
 import { attendanceNftAbi } from '@/lib/contract'
+import { WalletButton } from '@/components/WalletButton'
 
 type ClaimData = {
   eventId: string
@@ -22,7 +22,6 @@ type ClaimData = {
 
 export function ClaimClient({ token }: { token: string }) {
   const { address, isConnected } = useAccount()
-  const { connect, connectors } = useConnect()
   const chainId = useChainId()
   const { switchChain } = useSwitchChain()
   const { writeContract, data: txHash, isPending, error: writeError } =
@@ -92,15 +91,13 @@ export function ClaimClient({ token }: { token: string }) {
       <p className="text-gray-500">Claim your proof-of-attendance badge.</p>
 
       {!isConnected ? (
-        <button
-          onClick={() => {
-            const c = connectors.find((x) => x.id === 'baseAccount') ?? connectors[0]
-            connect({ connector: c })
-          }}
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-        >
-          Connect Wallet
-        </button>
+        <div className="flex flex-col items-center gap-2">
+          <WalletButton />
+          <p className="mt-1 max-w-xs text-center text-xs text-gray-400">
+            On Base Sepolia testnet. If a wallet says &quot;network not
+            supported&quot;, use MetaMask or Rabby.
+          </p>
+        </div>
       ) : isConfirmed ? (
         <div className="space-y-2 text-center">
           <p className="text-green-600 font-semibold">✓ Badge claimed!</p>

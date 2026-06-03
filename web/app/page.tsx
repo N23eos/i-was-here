@@ -1,4 +1,5 @@
-import { ConnectWallet } from "@/components/ConnectWallet";
+import Link from "next/link";
+import { WalletButton } from "@/components/WalletButton";
 
 export default function Home() {
   return (
@@ -10,7 +11,25 @@ export default function Home() {
           Connect your wallet to get started.
         </p>
       </div>
-      <ConnectWallet />
+      <WalletButton />
+      <nav className="flex flex-wrap items-center justify-center gap-3">
+        <Link
+          href="/organizer"
+          className="rounded-xl bg-[#0052FF] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#0042cc]"
+        >
+          Organizer dashboard
+        </Link>
+        <Link
+          href="/collection"
+          className="rounded-xl border border-gray-300 px-5 py-2.5 text-sm font-semibold text-gray-800 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-800"
+        >
+          My collection
+        </Link>
+      </nav>
+      <p className="max-w-md text-center text-xs text-gray-400">
+        Organizer requires the contract owner wallet. Collection shows badges you
+        claimed.
+      </p>
     </main>
   );
 }

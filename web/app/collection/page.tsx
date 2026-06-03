@@ -1,16 +1,16 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useAccount, useConnect, useReadContracts } from 'wagmi'
+import { useAccount, useReadContracts } from 'wagmi'
 import { attendanceNftAbi, attendanceNftAddress } from '@/lib/contract'
 import { calcLevel } from '@/lib/level'
-import { PageShell, Card, Button } from '@/components/ui'
+import { PageShell, Card } from '@/components/ui'
+import { WalletButton } from '@/components/WalletButton'
 
 type EventRow = { id: string; name: string; onchainEventId: string }
 
 export default function CollectionPage() {
   const { address, isConnected } = useAccount()
-  const { connect, connectors } = useConnect()
   const [events, setEvents] = useState<EventRow[]>([])
 
   useEffect(() => {
@@ -42,15 +42,7 @@ export default function CollectionPage() {
       <PageShell title="My collection" subtitle="Your attendance badges">
         <Card className="flex flex-col items-start gap-4">
           <p className="text-gray-500">Connect your wallet to see your badges.</p>
-          <Button
-            onClick={() => {
-              const c =
-                connectors.find((x) => x.id === 'baseAccount') ?? connectors[0]
-              connect({ connector: c })
-            }}
-          >
-            Connect Wallet
-          </Button>
+          <WalletButton />
         </Card>
       </PageShell>
     )

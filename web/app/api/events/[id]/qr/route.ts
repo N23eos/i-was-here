@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db'
 import { mintClaimTokens } from '@/lib/server/claims'
 import { qrDataUrl } from '@/lib/qr'
 import { buildStickerSheet } from '@/lib/pdf'
+import { appOrigin } from '@/lib/origin'
 
 const TTL_MS = 30 * 60_000 // simple-mode 30 мин (Locked)
 const MAX_COUNT = 200
@@ -25,7 +26,7 @@ export async function POST(
   }
 
   const minted = await mintClaimTokens(event.id, count, TTL_MS)
-  const baseUrl = new URL(request.url).origin
+  const baseUrl = appOrigin(request)
   const urls = minted.map((m) => `${baseUrl}/claim/${m.token}`)
 
   if (format === 'pdf') {

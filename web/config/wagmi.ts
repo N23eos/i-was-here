@@ -2,14 +2,15 @@
 
 import { http, cookieStorage, createConfig, createStorage } from 'wagmi'
 import { baseSepolia } from 'wagmi/chains'
-import { injected, baseAccount } from '@wagmi/connectors'
+import { baseAccount } from '@wagmi/connectors'
 
+// MetaMask / Rabby обнаруживаются автоматически через EIP-6963
+// (multiInjectedProviderDiscovery включён по умолчанию) — отдельными кнопками.
+// baseAccount — вход по email/Base Account. Generic injected() убран, чтобы
+// не дублировать обнаруженные кошельки кнопкой "Injected".
 export const config = createConfig({
   chains: [baseSepolia],
-  connectors: [
-    injected(),
-    baseAccount({ appName: 'I Was Here' }),
-  ],
+  connectors: [baseAccount({ appName: 'I Was Here' })],
   storage: createStorage({ storage: cookieStorage }),
   ssr: true,
   transports: {

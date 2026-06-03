@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useConnect } from 'wagmi'
-import { useIsOwner } from './useIsOwner'
+import { useRouter } from 'next/navigation'
+import { useAccount } from 'wagmi'
 import { PageShell, Card, Button, Field, Badge } from '@/components/ui'
+import { WalletButton } from '@/components/WalletButton'
 
 type EventRow = {
   id: string
@@ -14,41 +15,16 @@ type EventRow = {
   maxSupply: number
 }
 
+// MVP testnet: доступ по любому подключённому кошельку. Создание события on-chain
+// всё равно идёт server-side deployer-ключом (реальный owner). Жёсткий auth — Sprint 06.
 export default function OrganizerPage() {
-  const { isOwner, isConnected, isLoading } = useIsOwner()
-  const { connect, connectors } = useConnect()
+  const { isConnected } = useAccount()
 
   if (!isConnected) {
     return (
       <Gate>
-        <p className="text-gray-500">Connect the owner wallet to manage events.</p>
-        <Button
-          onClick={() => {
-            const c =
-              connectors.find((x) => x.id === 'baseAccount') ?? connectors[0]
-            connect({ connector: c })
-          }}
-        >
-          Connect Wallet
-        </Button>
-      </Gate>
-    )
-  }
-
-  if (isLoading) {
-    return (
-      <Gate>
-        <p className="text-gray-500">Checking access…</p>
-      </Gate>
-    )
-  }
-
-  if (!isOwner) {
-    return (
-      <Gate>
-        <p className="text-red-600">
-          This wallet is not the contract owner. Switch to the owner wallet.
-        </p>
+        <p className="text-gray-500">Connect your wallet to manage events.</p>
+        <WalletButton />
       </Gate>
     )
   }
@@ -122,6 +98,23 @@ function Dashboard() {
   )
 }
 
+function defaultStart() {
+  // сейчас, округлено вниз до минуты, в формате datetime-local
+  const d = new Date()
+  d.setSeconds(0, 0)
+  return toLocalInput(d)
+}
+function defaultEnd() {
+  // +1 день
+  const d = new Date(Date.now() + 24 * 3600_000)
+  d.setSeconds(0, 0)
+  return toLocalInput(d)
+}
+function toLocalInput(d: Date) {
+  const tz = d.getTimezoneOffset() * 60000
+  return new Date(d.getTime() - tz).toISOString().slice(0, 16)
+}
+
 function CreateForm({
   onCreated,
   loading,
@@ -131,9 +124,10 @@ function CreateForm({
   loading: boolean
   setLoading: (v: boolean) => void
 }) {
+  const router = useRouter()
   const [name, setName] = useState('')
-  const [start, setStart] = useState('')
-  const [end, setEnd] = useState('')
+  const [start, setStart] = useState(defaultStart())
+  const [end, setEnd] = useState(defaultEnd())
   const [maxSupply, setMaxSupply] = useState('100')
   const [mode, setMode] = useState<'simple' | 'secure'>('simple')
   const [error, setError] = useState<string | null>(null)
@@ -156,10 +150,9 @@ function CreateForm({
       })
       const data = await r.json()
       if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`)
-      setName('')
-      setStart('')
-      setEnd('')
       onCreated()
+      // сразу на страницу события — там QR/тест-ссылка
+      router.push(`/organizer/${data.id}`)
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -214,8 +207,8 @@ function CreateForm({
               onChange={(e) => setMode(e.target.value as 'simple' | 'secure')}
               className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-[#0052FF] dark:border-gray-700 dark:bg-gray-800 dark:text-white"
             >
-              <option value="simple">Simple — printed QR stickers</option>
-              <option value="secure">Secure — live rotating QR</option>
+              <option value="simple">Unique QR stickers — one per person</option>
+              <option value="secure">One shared QR — 1 per wallet</option>
             </select>
           </label>
         </div>

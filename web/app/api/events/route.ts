@@ -5,6 +5,7 @@ import { encryptKey, genSigner } from '@/lib/crypto'
 import { buildMetadataUri } from '@/lib/metadata'
 import { publicClient, getDeployerWalletClient } from '@/lib/server/clients'
 import { attendanceNftAbi, attendanceNftAddress } from '@/lib/contract'
+import { appOrigin } from '@/lib/origin'
 
 // GET /api/events — список событий (для дашборда организатора).
 export async function GET() {
@@ -69,7 +70,7 @@ export async function POST(request: NextRequest) {
   const signer = genSigner()
   const encryptedSignerKey = encryptKey(signer.privateKey)
 
-  const baseUrl = new URL(request.url).origin
+  const baseUrl = appOrigin(request)
   const metadataUri = buildMetadataUri(name, baseUrl)
 
   // on-chain createEvent (owner = deployer), ждём receipt.
