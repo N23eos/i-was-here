@@ -5,9 +5,11 @@ import {
   useAccount,
   useChainId,
   useSwitchChain,
-  useWriteContract,
-  useWaitForTransactionReceipt,
+  useCapabilities,
+  useSendCalls,
+  useWaitForCallsStatus,
 } from 'wagmi'
+import { encodeFunctionData } from 'viem'
 import { baseSepolia } from 'wagmi/chains'
 import { attendanceNftAbi } from '@/lib/contract'
 import { WalletButton } from '@/components/WalletButton'
@@ -24,10 +26,26 @@ export function ClaimClient({ token }: { token: string }) {
   const { address, isConnected } = useAccount()
   const chainId = useChainId()
   const { switchChain } = useSwitchChain()
-  const { writeContract, data: txHash, isPending, error: writeError } =
-    useWriteContract()
-  const { isLoading: isConfirming, isSuccess: isConfirmed } =
-    useWaitForTransactionReceipt({ hash: txHash })
+
+  // EIP-5792: умеет ли кошелёк спонсирование (paymasterService) на нашей сети.
+  const { data: capabilities } = useCapabilities({ account: address })
+  const paymasterSupported = Boolean(
+    capabilities?.[baseSepolia.id]?.paymasterService?.supported
+  )
+
+  // Отправка claim() батчем с paymaster-capability (gasless).
+  const {
+    sendCalls,
+    data: callsData,
+    isPending,
+    error: sendError,
+  } = useSendCalls()
+  const { data: callsStatus, isSuccess: isConfirmed } = useWaitForCallsStatus({
+    id: callsData?.id as string,
+    query: { enabled: Boolean(callsData?.id) },
+  })
+  const isConfirming = Boolean(callsData?.id) && !isConfirmed
+  const txHash = callsStatus?.receipts?.[0]?.transactionHash
 
   const [claim, setClaim] = useState<ClaimData | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -60,11 +78,29 @@ export function ClaimClient({ token }: { token: string }) {
       switchChain({ chainId: baseSepolia.id })
       return
     }
-    writeContract({
-      address: claim.contractAddress,
-      abi: attendanceNftAbi,
-      functionName: 'claim',
-      args: [BigInt(claim.eventId), claim.claimUUID, address, claim.signature],
+    // Абсолютный URL прокси — кошелёк сам фетчит paymasterService.url.
+    const paymasterUrl = new URL(
+      process.env.NEXT_PUBLIC_PAYMASTER_PROXY_URL ?? '/api/paymaster',
+      window.location.origin
+    ).toString()
+
+    sendCalls({
+      calls: [
+        {
+          to: claim.contractAddress,
+          data: encodeFunctionData({
+            abi: attendanceNftAbi,
+            functionName: 'claim',
+            args: [
+              BigInt(claim.eventId),
+              claim.claimUUID,
+              address,
+              claim.signature,
+            ],
+          }),
+        },
+      ],
+      capabilities: { paymasterService: { url: paymasterUrl } },
     })
   }
 
@@ -101,17 +137,14 @@ export function ClaimClient({ token }: { token: string }) {
         <h1 className="mt-5 text-2xl font-bold text-gray-900 dark:text-white">
           {claim.eventName}
         </h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Proof-of-attendance badge
-        </p>
+        <p className="mt-1 text-sm text-gray-500">Proof-of-attendance badge</p>
 
         <div className="mt-6">
           {!isConnected ? (
             <div className="flex flex-col items-center gap-2">
               <WalletButton />
               <p className="mt-1 text-xs text-gray-400">
-                On Base Sepolia. Use MetaMask or Rabby if a wallet says
-                &quot;network not supported&quot;.
+                Gasless on Base Sepolia — connect a Base Account.
               </p>
             </div>
           ) : isConfirmed ? (
@@ -119,21 +152,29 @@ export function ClaimClient({ token }: { token: string }) {
               <div className="rounded-xl bg-green-50 px-4 py-3 font-semibold text-green-700 dark:bg-green-950/40 dark:text-green-400">
                 ✓ Badge claimed!
               </div>
-              <a
-                href={`https://sepolia.basescan.org/tx/${txHash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-[#0052FF] underline"
-              >
-                View transaction
-              </a>
+              {txHash && (
+                <a
+                  href={`https://sepolia.basescan.org/tx/${txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-[#0052FF] underline"
+                >
+                  View transaction
+                </a>
+              )}
+            </div>
+          ) : chainId === baseSepolia.id && !paymasterSupported ? (
+            // Только gasless: кошелёк без спонсирования не пускаем (нет платного пути).
+            <div className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
+              This wallet can&apos;t claim gas-free. Use a Base Account to claim
+              your badge for free.
             </div>
           ) : (
             <div className="space-y-3">
-              {chainId !== baseSepolia.id && (
-                <p className="text-sm text-amber-600">
-                  Wrong network — claiming switches you to Base Sepolia.
-                </p>
+              {chainId === baseSepolia.id && (
+                <span className="inline-flex items-center rounded-full bg-[#0052FF]/10 px-2.5 py-0.5 text-xs font-medium text-[#0052FF]">
+                  ⚡ Gasless
+                </span>
               )}
               <button
                 onClick={handleClaim}
@@ -148,11 +189,11 @@ export function ClaimClient({ token }: { token: string }) {
                       ? 'Switch network'
                       : 'Claim badge'}
               </button>
-              {writeError && (
+              {sendError && (
                 <p className="text-sm text-red-600">
-                  {writeError.message.includes('ClaimUsed')
+                  {sendError.message.includes('ClaimUsed')
                     ? 'This claim was already used.'
-                    : writeError.message.slice(0, 140)}
+                    : sendError.message.slice(0, 140)}
                 </p>
               )}
             </div>
