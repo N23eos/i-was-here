@@ -78,11 +78,10 @@ export function ClaimClient({ token }: { token: string }) {
       switchChain({ chainId: activeChain.id })
       return
     }
-    // Абсолютный URL прокси — кошелёк сам фетчит paymasterService.url.
-    const paymasterUrl = new URL(
-      process.env.NEXT_PUBLIC_PAYMASTER_PROXY_URL ?? '/api/paymaster',
-      window.location.origin
-    ).toString()
+    const rawUrl = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_URL ?? '/api/paymaster'
+    const paymasterUrl = new URL(rawUrl, window.location.origin).toString()
+    // Gasless только если кошелёк поддерживает и URL — HTTPS (localhost не пройдёт валидацию кошелька).
+    const canUsePaymaster = paymasterSupported && paymasterUrl.startsWith('https')
 
     sendCalls({
       calls: [
@@ -100,7 +99,9 @@ export function ClaimClient({ token }: { token: string }) {
           }),
         },
       ],
-      capabilities: { paymasterService: { url: paymasterUrl } },
+      ...(canUsePaymaster && {
+        capabilities: { paymasterService: { url: paymasterUrl } },
+      }),
     })
   }
 
@@ -163,15 +164,9 @@ export function ClaimClient({ token }: { token: string }) {
                 </a>
               )}
             </div>
-          ) : chainId === activeChain.id && !paymasterSupported ? (
-            // Только gasless: кошелёк без спонсирования не пускаем (нет платного пути).
-            <div className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
-              This wallet can&apos;t claim gas-free. Use a Base Account to claim
-              your badge for free.
-            </div>
           ) : (
             <div className="space-y-3">
-              {chainId === activeChain.id && (
+              {chainId === activeChain.id && paymasterSupported && (
                 <span className="inline-flex items-center rounded-full bg-[#0052FF]/10 px-2.5 py-0.5 text-xs font-medium text-[#0052FF]">
                   ⚡ Gasless
                 </span>
