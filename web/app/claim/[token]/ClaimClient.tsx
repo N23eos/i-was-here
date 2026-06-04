@@ -126,6 +126,7 @@ export function ClaimClient({ token }: { token: string }) {
         abi: attendanceNftAbi,
         functionName: 'claim',
         args: [BigInt(claim.eventId), claim.claimUUID, address, claim.signature],
+        chain: activeChain,
       })
     }
   }
