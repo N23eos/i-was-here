@@ -1,5 +1,5 @@
-// Адрес задеплоенного AttendanceNFT (Base Sepolia, Sprint 02) + ABI.
-import { baseSepolia } from 'viem/chains'
+// Адрес задеплоенного AttendanceNFT + ABI. Сеть — из lib/chain.
+import { activeChain } from './chain'
 import { attendanceNftAbi } from './abi'
 
 export { attendanceNftAbi }
@@ -8,4 +8,4 @@ export { attendanceNftAbi }
 export const attendanceNftAddress = process.env
   .NEXT_PUBLIC_ATTENDANCE_NFT_ADDRESS as `0x${string}`
 
-export const chain = baseSepolia
+export const chain = activeChain

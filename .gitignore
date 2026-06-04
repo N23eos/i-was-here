@@ -39,6 +39,7 @@ yarn-error.log*
 SPRINT_*.md
 DONE_*.md
 PROGRESS.md
+HANDOFF.md
 .plan.md
 AGENTS.md
 EVALS.md

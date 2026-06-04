@@ -10,7 +10,7 @@ import {
   useWaitForCallsStatus,
 } from 'wagmi'
 import { encodeFunctionData } from 'viem'
-import { baseSepolia } from 'wagmi/chains'
+import { activeChain, explorerTxUrl } from '@/lib/chain'
 import { attendanceNftAbi } from '@/lib/contract'
 import { WalletButton } from '@/components/WalletButton'
 
@@ -30,7 +30,7 @@ export function ClaimClient({ token }: { token: string }) {
   // EIP-5792: умеет ли кошелёк спонсирование (paymasterService) на нашей сети.
   const { data: capabilities } = useCapabilities({ account: address })
   const paymasterSupported = Boolean(
-    capabilities?.[baseSepolia.id]?.paymasterService?.supported
+    capabilities?.[activeChain.id]?.paymasterService?.supported
   )
 
   // Отправка claim() батчем с paymaster-capability (gasless).
@@ -74,8 +74,8 @@ export function ClaimClient({ token }: { token: string }) {
 
   function handleClaim() {
     if (!claim || !address) return
-    if (chainId !== baseSepolia.id) {
-      switchChain({ chainId: baseSepolia.id })
+    if (chainId !== activeChain.id) {
+      switchChain({ chainId: activeChain.id })
       return
     }
     // Абсолютный URL прокси — кошелёк сам фетчит paymasterService.url.
@@ -144,7 +144,7 @@ export function ClaimClient({ token }: { token: string }) {
             <div className="flex flex-col items-center gap-2">
               <WalletButton />
               <p className="mt-1 text-xs text-gray-400">
-                Gasless on Base Sepolia — connect a Base Account.
+                Gasless on {activeChain.name} — connect a Base Account.
               </p>
             </div>
           ) : isConfirmed ? (
@@ -154,7 +154,7 @@ export function ClaimClient({ token }: { token: string }) {
               </div>
               {txHash && (
                 <a
-                  href={`https://sepolia.basescan.org/tx/${txHash}`}
+                  href={explorerTxUrl(txHash)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-sm text-[#0052FF] underline"
@@ -163,7 +163,7 @@ export function ClaimClient({ token }: { token: string }) {
                 </a>
               )}
             </div>
-          ) : chainId === baseSepolia.id && !paymasterSupported ? (
+          ) : chainId === activeChain.id && !paymasterSupported ? (
             // Только gasless: кошелёк без спонсирования не пускаем (нет платного пути).
             <div className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
               This wallet can&apos;t claim gas-free. Use a Base Account to claim
@@ -171,7 +171,7 @@ export function ClaimClient({ token }: { token: string }) {
             </div>
           ) : (
             <div className="space-y-3">
-              {chainId === baseSepolia.id && (
+              {chainId === activeChain.id && (
                 <span className="inline-flex items-center rounded-full bg-[#0052FF]/10 px-2.5 py-0.5 text-xs font-medium text-[#0052FF]">
                   ⚡ Gasless
                 </span>
@@ -185,7 +185,7 @@ export function ClaimClient({ token }: { token: string }) {
                   ? 'Confirm in wallet…'
                   : isConfirming
                     ? 'Minting…'
-                    : chainId !== baseSepolia.id
+                    : chainId !== activeChain.id
                       ? 'Switch network'
                       : 'Claim badge'}
               </button>

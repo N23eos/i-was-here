@@ -7,11 +7,13 @@ optimizer = true
 optimizer_runs = 200
 evm_version = "cancun"
 
-# Base Sepolia RPC + verify (значения берутся из корневого .env)
+# Base Sepolia + Base mainnet RPC/verify (значения берутся из корневого .env)
 [rpc_endpoints]
 base_sepolia = "${NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL}"
+base = "${BASE_MAINNET_RPC_URL}"
 
 [etherscan]
 base_sepolia = { key = "${BASESCAN_API_KEY}", chain = 84532 }
+base = { key = "${BASESCAN_API_KEY}", chain = 8453 }
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

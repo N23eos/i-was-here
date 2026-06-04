@@ -1,15 +1,12 @@
 import { createPublicClient, createWalletClient, http } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { baseSepolia } from 'viem/chains'
+import { activeChain, rpcUrl } from '../chain'
 
 // Server-only viem-клиенты. DEPLOYER_PRIVATE_KEY = owner контракта (зовёт createEvent).
-// Ключ берётся ТОЛЬКО из серверного env, не из NEXT_PUBLIC_.
-
-const rpcUrl =
-  process.env.BASE_SEPOLIA_RPC_URL ?? 'https://sepolia.base.org'
+// Ключ берётся ТОЛЬКО из серверного env, не из NEXT_PUBLIC_. Сеть — из lib/chain.
 
 export const publicClient = createPublicClient({
-  chain: baseSepolia,
+  chain: activeChain,
   transport: http(rpcUrl),
 })
 
@@ -22,7 +19,7 @@ export function getDeployerWalletClient() {
   const account = privateKeyToAccount(pk as `0x${string}`)
   return createWalletClient({
     account,
-    chain: baseSepolia,
+    chain: activeChain,
     transport: http(rpcUrl),
   })
 }
