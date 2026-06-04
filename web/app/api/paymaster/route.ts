@@ -1,9 +1,10 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
-// Прокси к CDP Paymaster (Sprint 05, gasless claim).
-// Назначение: прятать секрет CDP_PAYMASTER_URL от браузера + пускать только
-// paymaster-методы. Authoritative allowlist (наш контракт + claim + лимиты)
-// настраивается в CDP-дашборде — здесь userOp.callData не декодим (хрупко,
+// Прокси к Paymaster (Sprint 05, gasless claim).
+// Назначение: прятать секрет PAYMASTER_URL от браузера + пускать только
+// paymaster-методы. Pimlico/CDP — подставить нужный URL в .env.
+// Authoritative allowlist (наш контракт + claim + лимиты)
+// настраивается в дашборде провайдера — здесь userOp.callData не декодим (хрупко,
 // зависит от smart-account кошелька).
 
 // Только эти JSON-RPC методы спонсирования пропускаем дальше.
@@ -15,7 +16,7 @@ const ALLOWED_METHODS = new Set([
 const OUTBOUND_TIMEOUT_MS = 10_000
 
 export async function POST(request: NextRequest) {
-  const cdpUrl = process.env.CDP_PAYMASTER_URL
+  const cdpUrl = process.env.PAYMASTER_URL
   if (!cdpUrl) {
     return NextResponse.json(
       { error: 'paymaster not configured' },
