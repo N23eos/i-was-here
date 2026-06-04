@@ -8,6 +8,8 @@ import {
   useCapabilities,
   useSendCalls,
   useWaitForCallsStatus,
+  useWriteContract,
+  useWaitForTransactionReceipt,
 } from 'wagmi'
 import { encodeFunctionData } from 'viem'
 import { activeChain, explorerTxUrl } from '@/lib/chain'
@@ -27,30 +29,51 @@ export function ClaimClient({ token }: { token: string }) {
   const chainId = useChainId()
   const { switchChain } = useSwitchChain()
 
-  // EIP-5792: умеет ли кошелёк спонсирование (paymasterService) на нашей сети.
   const { data: capabilities } = useCapabilities({ account: address })
+  // EIP-5792 sendCalls supported if wallet returns capabilities for this chain.
+  const sendCallsSupported = Boolean(capabilities?.[activeChain.id])
   const paymasterSupported = Boolean(
     capabilities?.[activeChain.id]?.paymasterService?.supported
   )
 
-  // Отправка claim() батчем с paymaster-capability (gasless).
+  // EIP-5792 path (gasless-capable wallets).
   const {
     sendCalls,
     data: callsData,
-    isPending,
-    error: sendError,
+    isPending: isSendPending,
+    error: sendCallsError,
   } = useSendCalls()
-  const { data: callsStatus, isSuccess: isConfirmed } = useWaitForCallsStatus({
+  const { data: callsStatus, isSuccess: isCallsConfirmed } = useWaitForCallsStatus({
     id: callsData?.id as string,
     query: { enabled: Boolean(callsData?.id) },
   })
-  const isConfirming = Boolean(callsData?.id) && !isConfirmed
-  const txHash = callsStatus?.receipts?.[0]?.transactionHash
+
+  // Fallback: regular writeContract (MetaMask, Rabby, wallets without EIP-5792).
+  const {
+    writeContract,
+    data: writeTxHash,
+    isPending: isWritePending,
+    error: writeContractError,
+  } = useWriteContract()
+  const { isSuccess: isWriteConfirmed, isLoading: isWriteConfirming } =
+    useWaitForTransactionReceipt({
+      hash: writeTxHash,
+      query: { enabled: Boolean(writeTxHash) },
+    })
+
+  // Merged state from both paths.
+  const isPending = isSendPending || isWritePending
+  const isConfirmed = isCallsConfirmed || isWriteConfirmed
+  const isConfirming =
+    (Boolean(callsData?.id) && !isCallsConfirmed) || isWriteConfirming
+  const txHash =
+    (callsStatus?.receipts?.[0]?.transactionHash as `0x${string}` | undefined) ??
+    writeTxHash
+  const txError = sendCallsError ?? writeContractError
 
   const [claim, setClaim] = useState<ClaimData | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  // Загрузка claim-данных по токену.
   useEffect(() => {
     fetch(`/api/claim?token=${encodeURIComponent(token)}`)
       .then(async (r) => {
@@ -61,7 +84,6 @@ export function ClaimClient({ token }: { token: string }) {
       .catch((e) => setLoadError(e.message))
   }, [token])
 
-  // После подтверждения on-chain — пометить токен использованным (UX).
   useEffect(() => {
     if (isConfirmed && txHash && address) {
       fetch('/api/claim', {
@@ -78,31 +100,34 @@ export function ClaimClient({ token }: { token: string }) {
       switchChain({ chainId: activeChain.id })
       return
     }
-    const rawUrl = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_URL ?? '/api/paymaster'
-    const paymasterUrl = new URL(rawUrl, window.location.origin).toString()
-    // Gasless только если кошелёк поддерживает и URL — HTTPS (localhost не пройдёт валидацию кошелька).
-    const canUsePaymaster = paymasterSupported && paymasterUrl.startsWith('https')
 
-    sendCalls({
-      calls: [
-        {
-          to: claim.contractAddress,
-          data: encodeFunctionData({
-            abi: attendanceNftAbi,
-            functionName: 'claim',
-            args: [
-              BigInt(claim.eventId),
-              claim.claimUUID,
-              address,
-              claim.signature,
-            ],
-          }),
-        },
-      ],
-      ...(canUsePaymaster && {
-        capabilities: { paymasterService: { url: paymasterUrl } },
-      }),
-    })
+    if (sendCallsSupported) {
+      const rawUrl = process.env.NEXT_PUBLIC_PAYMASTER_PROXY_URL ?? '/api/paymaster'
+      const paymasterUrl = new URL(rawUrl, window.location.origin).toString()
+      const canUsePaymaster = paymasterSupported && paymasterUrl.startsWith('https')
+      sendCalls({
+        calls: [
+          {
+            to: claim.contractAddress,
+            data: encodeFunctionData({
+              abi: attendanceNftAbi,
+              functionName: 'claim',
+              args: [BigInt(claim.eventId), claim.claimUUID, address, claim.signature],
+            }),
+          },
+        ],
+        ...(canUsePaymaster && {
+          capabilities: { paymasterService: { url: paymasterUrl } },
+        }),
+      })
+    } else {
+      writeContract({
+        address: claim.contractAddress,
+        abi: attendanceNftAbi,
+        functionName: 'claim',
+        args: [BigInt(claim.eventId), claim.claimUUID, address, claim.signature],
+      })
+    }
   }
 
   if (loadError) {
@@ -145,7 +170,7 @@ export function ClaimClient({ token }: { token: string }) {
             <div className="flex flex-col items-center gap-2">
               <WalletButton />
               <p className="mt-1 text-xs text-gray-400">
-                Gasless on {activeChain.name} — connect a Base Account.
+                Connect a wallet to claim your badge on {activeChain.name}.
               </p>
             </div>
           ) : isConfirmed ? (
@@ -184,11 +209,11 @@ export function ClaimClient({ token }: { token: string }) {
                       ? 'Switch network'
                       : 'Claim badge'}
               </button>
-              {sendError && (
+              {txError && (
                 <p className="text-sm text-red-600">
-                  {sendError.message.includes('ClaimUsed')
+                  {txError.message.includes('ClaimUsed')
                     ? 'This claim was already used.'
-                    : sendError.message.slice(0, 140)}
+                    : txError.message.slice(0, 140)}
                 </p>
               )}
             </div>
