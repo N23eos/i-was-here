@@ -239,5 +239,3 @@ The contract does not distinguish modes — the difference is only how the backe
 1. Owner model — single admin (MVP) vs per-organizer factory (roadmap).
 2. Badge image — auto-generated (satori/canvas) vs organizer upload. MVP: upload + default template.
 3. Third-party contract audit before a public audience.
-
-See [`ROADMAP.md`](./ROADMAP.md) for post-MVP features.

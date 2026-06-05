@@ -91,10 +91,9 @@ Copy `.env.example` and fill in. Never commit a real `.env`.
 | `DEPLOYER_PRIVATE_KEY` | contract owner, server-side event creation |
 | `SIGNER_MASTER_KEY` | 32-byte hex, AES-256-GCM for per-event keys |
 
-## Architecture & roadmap
+## Architecture
 
-- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — system design and locked decisions.
-- [`ROADMAP.md`](./ROADMAP.md) — post-MVP scope (on-chain levels, perks, event types).
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — system design and decisions.
 
 ## License
 
