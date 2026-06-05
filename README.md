@@ -1,54 +1,101 @@
 # I Was Here
 
-Proof-of-attendance NFT-приложение на Base. MVP: организатор создаёт событие, гость сканирует QR, подключает Base Account и получает ERC-1155 NFT-бейдж. Gasless claim идёт через CDP Paymaster.
+**Gasless proof-of-attendance NFTs on Base.** An organizer creates an event, a guest
+scans a QR code, connects a wallet, and claims an ERC-1155 attendance badge — without
+paying gas. Badges accumulate into collectible levels.
 
-## Current Status
+> Live on **Base mainnet**. A real badge has been claimed end-to-end with gas fully
+> sponsored by a paymaster (claimer paid 0 ETH).
 
-Планирование завершено. Код приложения ещё не создан.
+---
 
-Следующий шаг: `SPRINT_00_DISCOVERY.md`.
+## Why
 
-## Core Docs
+POAP-style attendance badges, rebuilt **Base-native**:
 
-- `ARCHITECTURE.md` — архитектура и locked decisions.
-- `ROADMAP.md` — post-MVP scope.
-- `AGENTS.md` — правила для Claude/Codex.
-- `EVALS.md` — обязательные проверки.
-- `PROGRESS.md` — текущий статус.
+- **Frictionless onboarding** — Base Account (email sign-in), plus MetaMask / Rabby.
+- **Truly gasless** — the user signs, the paymaster pays (ERC-4337 + EIP-5792 + ERC-7677).
+- **On-chain utility** — badges roll up into levels (Bronze → Platinum), the foundation
+  for perks / token-gating, not just souvenirs.
 
-## Base Docs Checked
+## How it works
 
-- Build an app on Base: https://docs.base.org/apps/quickstart/build-app
-- Sponsor Gas: https://docs.base.org/base-account/improve-ux/sponsor-gas/paymasters
-- Base network/RPC details: https://docs.base.org/base-chain/quickstart/connecting-to-base
+1. **Create event** — organizer (contract owner) creates an event server-side. A
+   per-event signing key is generated and stored AES-256-GCM encrypted.
+2. **Share QR** — two modes:
+   - `simple` — unique printable QR stickers (PDF via `pdf-lib`), one per guest.
+   - `secure` — one shared static QR on screen, limited to **1 badge per wallet**
+     (enforced on-chain via `balanceOf`).
+3. **Claim** — guest opens the link, connects a wallet, taps **Claim**. The claim is
+   authorized by an EIP-191 signature over `keccak256(abi.encodePacked(claimUUID, eventId))`
+   and minted gasless through the paymaster. Wallets without EIP-5792 fall back to a
+   normal self-paid `writeContract`.
+4. **Collect** — badges show up in the holder's collection with an off-chain level
+   derived from badge count.
 
-## Prerequisites
+## Tech stack
 
-- Node.js >= 20.9
-- pnpm
-- Foundry (`forge`, `cast`)
-- Postgres
-- CDP Paymaster account
-- Pinata account
-- Base Sepolia deployer wallet with test ETH
+| Layer | Stack |
+|-------|-------|
+| Contract | Solidity, **ERC-1155** (`AttendanceNFT`), Foundry, OpenZeppelin 5.6.1 |
+| Frontend | **Next.js 16** (App Router, Turbopack), TypeScript, Tailwind v4 |
+| Web3 | **wagmi v3** + **viem**, Base Account (`@base-org/account`), EIP-6963 discovery |
+| Gasless | EIP-5792 `wallet_sendCalls` + ERC-7677 `paymasterService`, **Pimlico** paymaster (no-KYC) |
+| Backend | Next.js API routes, **Prisma** + Postgres |
 
-## Planned Structure
+Network is a single env switch (`NEXT_PUBLIC_CHAIN_ID`) — testnet ↔ mainnet.
+
+## Deployed contracts
+
+| Network | `AttendanceNFT` (ERC-1155) |
+|---------|----------------------------|
+| Base mainnet | [`0x8349c28226ac5D42020bb7fD30052dEc63d371ca`](https://basescan.org/address/0x8349c28226ac5D42020bb7fD30052dEc63d371ca) |
+| Base Sepolia | [`0xC53f9f1855d34854BC4778cfbFBC0C14966AEe41`](https://sepolia.basescan.org/address/0xC53f9f1855d34854BC4778cfbFBC0C14966AEe41) |
+
+## Repository layout
 
 ```text
-web/        Next.js app, API routes, Prisma
-contracts/  Foundry project, AttendanceNFT.sol
+web/        Next.js app — claim flow, organizer dashboard, collection, API, Prisma
+contracts/  Foundry project — AttendanceNFT.sol + tests
 ```
 
-## Environment
+## Quickstart
 
-Start from `.env.example`. Do not commit real `.env` files or secrets.
+Prerequisites: Node.js ≥ 20.9, pnpm, Foundry (`forge`/`cast`), Postgres.
 
-## Development Protocol
+```bash
+# 1. Frontend
+cd web
+pnpm install
+cp ../.env.example .env        # fill in values (see below)
+pnpm prisma migrate dev
+pnpm dev                       # http://localhost:3000
 
-1. Work one sprint at a time.
-2. Follow `AGENTS.md`.
-3. Run relevant checks from `EVALS.md`.
-4. Create `DONE_XX.md` after each sprint.
-5. Update `PROGRESS.md`.
+# 2. Contracts
+cd contracts
+forge build
+forge test
+```
 
-Mainnet deploy requires explicit human approval.
+### Environment
+
+Copy `.env.example` and fill in. Never commit a real `.env`.
+
+| Var | Purpose |
+|-----|---------|
+| `NEXT_PUBLIC_CHAIN_ID` | `8453` mainnet / `84532` Base Sepolia |
+| `NEXT_PUBLIC_ATTENDANCE_NFT_ADDRESS` | deployed contract address |
+| `NEXT_PUBLIC_RPC_URL` | Base RPC endpoint |
+| `DATABASE_URL` | Postgres connection string |
+| `PAYMASTER_URL` | Pimlico paymaster RPC (server-only secret) |
+| `DEPLOYER_PRIVATE_KEY` | contract owner, server-side event creation |
+| `SIGNER_MASTER_KEY` | 32-byte hex, AES-256-GCM for per-event keys |
+
+## Architecture & roadmap
+
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — system design and locked decisions.
+- [`ROADMAP.md`](./ROADMAP.md) — post-MVP scope (on-chain levels, perks, event types).
+
+## License
+
+[MIT](./LICENSE)
