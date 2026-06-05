@@ -1,176 +1,147 @@
-# ARCHITECTURE.md — "I Was Here"
+# Architecture — I Was Here
 
-Proof-of-attendance NFT-приложение на Base. Гость получает NFT-бейдж посещения с надписью события и коллекционирует их в кошельке. ERC-1155, gasless-клейм через CDP Paymaster + Base Account (Coinbase Smart Wallet). MVP на Base Sepolia.
+Gasless proof-of-attendance NFTs on Base. A guest claims an ERC-1155 badge for an
+event and collects badges across events. Gasless minting uses ERC-4337 account
+abstraction via EIP-5792 + ERC-7677, with a Pimlico paymaster. Live on Base mainnet.
 
-> Источники, сверенные с официальной докой Base (docs.base.org):
-> - Gasless = **ERC-7677 + EIP-5792** (`wallet_sendCalls` + capability `paymasterService.url`).
-> - CDP Paymaster URL **проксируется** через бэкенд, не светится на фронте; в CDP включается allowlist контрактов/методов.
-> - Стек wallet: **wagmi v2 + viem + Base Account connector** (`@base-org/account`) + `injected()` fallback; `ssr: true` + `cookieStorage` для Next.js.
-> - Base Sepolia: chainId **84532** (`0x14A34`), RPC `https://sepolia.base.org`, explorer `https://sepolia-explorer.base.org`. Mainnet — **8453**.
-
----
-
-## 0. Locked Decisions (зафиксировано до кода)
-
-| # | Решение |
-|---|---------|
-| Хранение ключей | env + **AES-256-GCM** для MVP → **CDP KMS** перед mainnet |
-| Содержимое QR | только короткий **token** (`/claim/{token}`), полный payload в БД |
-| Формат подписи | **EIP-191** (`toEthSignedMessageHash`) везде. Payload: `keccak256(abi.encodePacked(claimUUID, eventId))` |
-| Frontrun (простой режим) | принят для MVP + **TTL claim-токена 30 мин** в БД. Recipient-binding отложен post-MVP |
-| Paymaster исчерпан | **блок клейма** с понятным сообщением. Алерт организатору при 20% баланса. **Без тихого фолбэка на газ юзера** |
-| Защищённый режим QR | **ротирующийся QR** (TOTP-style, ~15с) на экране организатора |
-| Уровни/геймификация | **off-chain** расчёт по числу NFT в кошельке (MVP). On-chain — post-MVP |
-| Скоуп | MVP узкий (2 режима QR + NFT-бейдж с надписью + коллекция). Остальное — `ROADMAP.md`. Контракт проектируем **extensible** сразу |
+> Verified against Base docs (docs.base.org):
+> - Gasless = **EIP-5792** (`wallet_sendCalls`) + **ERC-7677** capability `paymasterService.url`.
+> - Paymaster URL is **proxied** through the backend — never exposed to the client.
+> - Wallet stack: **wagmi v3 + viem + Base Account** (`@base-org/account`), MetaMask/Rabby
+>   via EIP-6963 discovery. `ssr: true` + `cookieStorage` for Next.js.
+> - Base mainnet chainId **8453**; Base Sepolia **84532**. Switched by one env var.
 
 ---
 
-## 1. Tech Stack Decision
+## Design decisions
 
-| Слой | Выбор | Почему |
-|------|-------|--------|
-| Frontend | `create-next-app@latest`, App Router, Node ≥ 20.9 | Стандарт, SSR/API routes, Vercel-нативно. |
-| Wallet (основа) | **wagmi v2 + viem + Base Account connector** (`@base-org/account`) + `injected()` | Доку Base: Base Account нужен для Smart Wallet/gasless, `injected()` покрывает браузерные wallets. |
-| Wagmi SSR | `ssr: true` + `cookieStorage` | Рекомендация Base quickstart для Next.js, чтобы избежать hydration mismatch. |
-| Wallet (UI) | **OnchainKit** (опционально) | Готовые компоненты Connect/Identity поверх wagmi. |
-| Контракты | **Foundry** | Быстрые тесты, fuzzing, скрипты деплоя. |
-| База данных | **Postgres + Prisma** | Типобезопасные миграции, индексы на FK. |
-| QR-генерация | `qrcode` (npm) | PNG/SVG/dataURL. |
-| PDF (стикеры) | `pdfkit` | Лист стикеров для простого режима. |
-| IPFS/метаданные | **Pinata** (MVP), локальный JSON fallback | metadata.json для `uri()`. |
-| Paymaster | **CDP Paymaster** (ERC-7677) | Спонсирует UserOp Smart Account-а гостя. URL проксируется. |
-| Деплой | **Vercel**, Base Sepolia → Mainnet | Vercel-нативный Next.js. |
-
-**Почему НЕ наивный backend-relayer:** если backend зовёт `claim()`, `msg.sender = relayer`. Без явного `recipient` NFT уйдёт релееру. Поэтому: (а) контракт минтит в `recipient`; (б) tx шлёт Smart Account гостя через `wallet_sendCalls`, газ спонсирует Paymaster.
-
-**Критичная деталь хеширования (скилл nodejs-keccak256):** подпись на бэкенде через `viem`/`ethers` `keccak256`, **никогда** `crypto.createHash('sha3-256')` (NIST-SHA3 ≠ Keccak, `ecrecover` не сойдётся).
+| Topic | Decision |
+|-------|----------|
+| Key storage | env master key + **AES-256-GCM** for per-event signer keys |
+| QR contents | short **token** only (`/claim/{token}`); full payload in DB |
+| Signature | **EIP-191** over `keccak256(abi.encodePacked(claimUUID, eventId))` |
+| Gasless | sponsor via paymaster; wallets without EIP-5792 fall back to self-paid `writeContract` |
+| Levels | **off-chain**, derived from badge count (on-chain is roadmap) |
+| Scope | narrow MVP; contract designed **extensible** so roadmap features don't break `usedClaims` |
 
 ---
 
-## 2. System Diagram (ASCII)
+## Tech stack
+
+| Layer | Choice | Why |
+|-------|--------|-----|
+| Frontend | Next.js 16 (App Router, Turbopack), TypeScript, Tailwind v4 | SSR/API routes, Vercel-native |
+| Wallet | wagmi v3 + viem + Base Account (`@base-org/account`), EIP-6963 | Base Account enables smart-wallet/gasless; EIP-6963 auto-discovers injected wallets |
+| Wagmi SSR | `ssr: true` + `cookieStorage` | avoids hydration mismatch (Base quickstart) |
+| Contracts | Foundry | fast tests, fuzzing, deploy scripts |
+| Database | Postgres + Prisma | typed migrations, FK indexes |
+| QR / PDF | `qrcode`, `pdf-lib` | QR images, printable sticker sheets |
+| Metadata | Pinata (IPFS) + local JSON fallback | `uri(tokenId)` metadata |
+| Paymaster | **Pimlico** (ERC-7677) | sponsors the guest UserOp; no KYC; proxied URL |
+| Deploy | Vercel, Base Sepolia → mainnet | Next.js-native |
+
+**Why not a naive backend relayer:** if the backend calls `claim()`, `msg.sender = relayer`
+and the NFT would go to the relayer. Instead: (a) the contract mints to an explicit
+`recipient`; (b) the tx is sent from the guest's smart account via `wallet_sendCalls`,
+gas sponsored by the paymaster.
+
+**Hashing detail:** signatures use viem `keccak256` — **never** Node's `sha3-256`
+(NIST-SHA3 ≠ Keccak, `ecrecover` would not match).
+
+---
+
+## System diagram
 
 ```
-                         ┌─────────────────────────────────────────┐
-                         │           ОРГАНИЗАТОР (браузер)           │
-                         │  /organizer dashboard                     │
-                         │  - создать событие (mode: simple|secure)  │
-                         │  - secure: экран "режим входа" (rotating)  │
-                         └───────────────┬───────────────────────────┘
-                                         │
-                                         ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                          BACKEND (Next.js API routes)                          │
-│  /api/events            создаёт event (+mode): keypair (viem)                  │
-│                         priv → AES-256-GCM → DB; pub-addr → on-chain           │
-│  /api/events/[id]/qr    SIMPLE: пачка claim-токенов (TTL 30мин) + PDF          │
-│  /api/events/[id]/live  SECURE: ротирующийся token каждые ~15с (TTL ~30с)      │
-│  /api/claim?token=      отдаёт {eventId, claimUUID, signature}                 │
-│  /api/paymaster (proxy) проксирует CDP Paymaster URL (скрыт)                   │
-│   ┌──────────────┐        ┌──────────────────────────────────────────┐        │
-│   │  Postgres    │◄──────►│  Master key (env) AES-шифрует priv-keys    │        │
-│   └──────────────┘        └──────────────────────────────────────────┘        │
-└───────────────────────────────────────┬────────────────────────────────────────┘
-                                         │
-        ┌────────────────────────────────┘
-        │ гость сканит QR → /claim/{token}
-        ▼
-┌─────────────────────────────────────────┐        ┌──────────────────────────────┐
-│         ГОСТЬ (мобильный браузер)         │        │       CDP Paymaster          │
-│  wagmi + Base Account connector           │◄──────►│  спонсирует газ UserOp       │
-│  connect/create Smart Wallet              │        │  (исчерпан → блок клейма)    │
-│  wallet_sendCalls(claim, paymaster)       │        └──────────────┬───────────────┘
-└───────────────────┬───────────────────────┘                       │
-                    │ UserOp (sender = Smart Account гостя)           ▼
-        ┌──────────────────────────────────────────────────────────────────┐
-        │                  Base Sepolia (chainId 84532)                      │
-        │  AttendanceNFT.sol (ERC-1155, extensible)                          │
-        │  claim(eventId, claimUUID, recipient, signature):                  │
-        │    ecrecover(EIP191(keccak256(packed(uuid,eventId))))==signer      │
-        │    !usedClaims[claimUUID] · now in window · minted<maxSupply        │
-        │    _mint(recipient, eventId, 1, "")   ← в recipient, НЕ msg.sender  │
-        └──────────────────────────────────────────────────────────────────┘
+            ┌──────────────────────────────────────────────┐
+            │            ORGANIZER (browser)               │
+            │  /organizer dashboard                        │
+            │  - create event (mode: simple | secure)      │
+            └───────────────────┬──────────────────────────┘
+                                │
+                                ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                       BACKEND (Next.js API routes)                       │
+│  POST /api/events                  create event: keypair (viem),          │
+│                                    priv → AES-256-GCM → DB, pub → on-chain │
+│  POST /api/events/[id]/qr          SIMPLE: batch of claim tokens + PDF     │
+│  POST /api/events/[id]/claim-shared SECURE: shared QR, 1 badge per wallet  │
+│  GET  /api/claim?token=            returns {eventId, claimUUID, signature} │
+│  POST /api/paymaster (proxy)       forwards to Pimlico (URL hidden)        │
+│   ┌──────────┐     ┌───────────────────────────────────────────┐         │
+│   │ Postgres │◄───►│ master key (env) AES-encrypts signer keys   │         │
+│   └──────────┘     └───────────────────────────────────────────┘         │
+└───────────────────────────────┬──────────────────────────────────────────┘
+                                │  guest scans QR → /claim/{token} or /e/{id}
+                                ▼
+┌──────────────────────────────────────┐      ┌──────────────────────────────┐
+│        GUEST (mobile browser)        │      │       Pimlico Paymaster      │
+│  wagmi + Base Account                │◄────►│  sponsors UserOp gas         │
+│  wallet_sendCalls(claim, paymaster)  │      │  (unavailable → self-pay)    │
+└──────────────────┬───────────────────┘      └──────────────┬───────────────┘
+                   │  UserOp (sender = guest smart account)   ▼
+       ┌──────────────────────────────────────────────────────────────┐
+       │                   Base mainnet (chainId 8453)                 │
+       │  AttendanceNFT.sol (ERC-1155, extensible)                     │
+       │  claim(eventId, claimUUID, recipient, signature):             │
+       │    ECDSA.recover(EIP191(keccak256(packed(uuid,eventId)))) ==  │
+       │      event.signerAddress                                      │
+       │    !usedClaims[claimUUID] · within window · minted < maxSupply │
+       │    _mint(recipient, eventId, 1, "")   ← recipient, not sender  │
+       └──────────────────────────────────────────────────────────────┘
 
-   off-chain уровни: фронт читает balanceOf по eventId-ам → счёт коллекции → уровень
+   off-chain levels: frontend reads balanceOf across eventIds → count → level
 ```
 
 ---
 
-## 3. Components & Responsibilities
+## Claim flow (organizer → mint)
 
-| Компонент | Ответственность |
-|-----------|------------------|
-| **Next.js frontend** | `/organizer`, `/claim/[token]`, `/collection` (бейджи гостя + уровень). |
-| **API routes** | События (+mode), генерация QR (simple/secure), PDF, claim-данные, прокси Paymaster, алерт бюджета. |
-| **Postgres (Prisma)** | События (с `mode`), claim-токены (с TTL), счётчики, paymaster-бюджет. Шифротекст priv-key. |
-| **Crypto-сервис** | Keypair (viem), AES-256-GCM, подпись `keccak256(abi.encodePacked(claimUUID, eventId))` + EIP-191. |
-| **Rotating-token сервис** | SECURE-режим: выдаёт короткоживущие claim-токены пачкой по таймеру для live-экрана. |
-| **AttendanceNFT.sol** | ERC-1155, extensible. Источник истины: подпись, дубли, окно, supply. Минт в `recipient`. |
-| **CDP Paymaster** | Спонсирует газ. URL проксируется. При исчерпании → блок (не тихий фолбэк). |
-| **Pinata** | metadata.json (бейдж с надписью события) для `uri(tokenId)`. |
-
----
-
-## 4. Data Flow (организатор → минт)
-
-1. Организатор на `/organizer` создаёт событие: название, время, maxSupply, картинка, **mode: `simple` | `secure`**.
-2. `POST /api/events`: keypair (viem) → priv AES-256-GCM → `Event.encryptedSignerKey`; on-chain `createEvent(...)` с `signerAddress`/окном/supply/uri; metadata (бейдж с надписью) → Pinata.
-3. Генерация claim-токенов — **зависит от mode**:
-   - **SIMPLE:** `POST /api/events/[id]/qr?count=N` → пачка `ClaimToken` (uuid, подпись, `expiresAt = now+30мин`), PDF-лист стикеров (`pdfkit`).
-   - **SECURE:** организатор открывает live-экран `/organizer/[id]/live` → `/api/events/[id]/live` отдаёт **один ротирующийся token каждые ~15с** (`expiresAt = now+~30с`, `used` помечается мгновенно при клейме). QR на экране обновляется.
-4. Гость сканирует QR → `/claim/{token}`.
-5. Фронт подключает/создаёт Base Account → `recipient = address`.
-6. `GET /api/claim?token=...` → `{ eventId, claimUUID, signature }` (+ проверка TTL/used в БД = UX-фильтр).
-7. Фронт зовёт `wallet_sendCalls` → `claim(eventId, claimUUID, recipient, signature)` + capability `paymasterService.url = /api/paymaster`.
-8. UserOp (sender = Smart Account гостя), газ спонсирует Paymaster. Если бюджет исчерпан → блок с сообщением.
-9. Контракт проверяет → `_mint(recipient, eventId, 1, "")`, эмит `Claimed`.
-10. Backend метит `ClaimToken.used=true`. Фронт `/collection` показывает новый бейдж + пересчитывает off-chain уровень.
+1. Organizer creates an event on `/organizer`: name, time window, maxSupply, image,
+   **mode: `simple` | `secure`**.
+2. `POST /api/events`: generate keypair (viem) → encrypt priv with AES-256-GCM →
+   `Event.encryptedSignerKey`; call on-chain `createEvent(...)` with `signerAddress`,
+   window, supply, uri; upload badge metadata to Pinata.
+3. Claim tokens depend on mode:
+   - **SIMPLE** — `POST /api/events/[id]/qr?count=N` returns a batch of `ClaimToken`s
+     (uuid, signature, TTL) and a printable sticker PDF (`pdf-lib`). One per guest.
+   - **SECURE** — one shared static QR on `/e/{id}`; `claim-shared` issues a token on
+     demand and limits to **1 badge per wallet** (checked on-chain via `balanceOf`).
+4. Guest scans QR → claim page → connects a wallet → `recipient = address`.
+5. `GET /api/claim?token=` returns `{ eventId, claimUUID, signature }`.
+6. Frontend calls `wallet_sendCalls(claim, ...)` with capability
+   `paymasterService.url = /api/paymaster`. Non-EIP-5792 wallets fall back to a
+   self-paid `writeContract`.
+7. Contract verifies signature/uniqueness/window/supply → `_mint(recipient, eventId, 1)`,
+   emits `Claimed`.
+8. Frontend `/collection` shows the new badge and recomputes the off-chain level.
 
 ---
 
-## 5. Signing Key Lifecycle
+## Signing key lifecycle
 
 ```
-Создание события
-   └─> viem generatePrivateKey() → privKey
-          ├─> privateKeyToAccount(privKey).address ──> on-chain Event.signerAddress
-          └─> AES-256-GCM(privKey, MASTER_KEY) ──> DB Event.encryptedSignerKey
+Create event
+  └─ viem generatePrivateKey() → privKey
+        ├─ privateKeyToAccount(privKey).address → on-chain Event.signerAddress
+        └─ AES-256-GCM(privKey, MASTER_KEY)      → DB Event.encryptedSignerKey
 
-Генерация QR (подпись)
-   └─> decrypt privKey
-          └─> h = keccak256(abi.encodePacked(claimUUID, eventId))   ← viem, НЕ sha3-256
-                 └─> sig = signMessage({raw: h})  → EIP-191        ← кладётся в ClaimToken
+Sign claim token
+  └─ decrypt privKey
+        └─ h = keccak256(abi.encodePacked(claimUUID, eventId))   ← viem
+              └─ sig = signMessage({ raw: h })  → EIP-191         → stored in ClaimToken
 
-Проверка (on-chain)
-   └─> ecrecover(toEthSignedMessageHash(h), sig) == Event.signerAddress
+Verify (on-chain)
+  └─ ECDSA.recover(toEthSignedMessageHash(h), sig) == Event.signerAddress
 ```
 
-- Приват-ключ **никогда** не уходит на фронт.
-- MVP: мастер-ключ в env (`SIGNER_MASTER_KEY`). **Перед mainnet — переход на CDP KMS** (Locked #1).
-- `abi.encodePacked(claimUUID, eventId)` безопасен: оба аргумента фикс-длины (`bytes32`, `uint256`) → нет коллизий упаковки. Бэкенд и контракт обязаны кодировать идентично.
+- The private key **never** reaches the client.
+- `abi.encodePacked(claimUUID, eventId)` is collision-safe: both args are fixed length
+  (`bytes32`, `uint256`). Backend and contract must encode identically.
 
 ---
 
-## 6. Gasless Flow (ERC-7677 / EIP-5792)
-
-1. Гость на `/claim/{token}` подключает Base Account.
-2. `wallet_getCapabilities(address)` → проверка `paymasterService.supported` для chainId 84532.
-3. `encodeFunctionData(claim, ...)` (viem).
-4. `wallet_sendCalls({ version:"1.0", chainId:"0x14a34", from:address, calls:[...], capabilities:{ paymasterService:{ url: NEXT_PUBLIC_PAYMASTER_PROXY_URL } } })` — URL = наш `/api/paymaster` (реальный CDP скрыт в env).
-5. Base Account строит UserOp, идёт к Paymaster за спонсорством.
-6. Спонсируется → UI «gas sponsored». **Бюджет исчерпан → блок клейма с сообщением** (Locked #5), без фолбэка на газ юзера.
-7. `sender` UserOp = Smart Account гостя; контракт всё равно минтит в `recipient`.
-8. NFT у гостя, газ оплатил Paymaster. Backend инкрементит счётчик бюджета; при ≤20% — алерт организатору.
-
-**Wagmi implementation notes (Base quickstart):**
-- `createConfig({ chains:[baseSepolia], connectors:[injected(), baseAccount({ appName })], storage:createStorage({ storage: cookieStorage }), ssr:true, transports:{ [baseSepolia.id]: http(...) } })`.
-- Проверять wallet state полностью: connecting/reconnecting/connected/disconnected.
-- Для чтений после write/calls инвалидировать `useReadContract` query key, иначе UI может показывать stale minted/count.
-- Проверять chain явно через `useChainId()`/`useSwitchChain()` до write/calls, чтобы пользователь не завис на скрытом switch prompt.
-- Проверять capabilities на deployment chain (`baseSepolia.id`/`base.id`), а не на текущей случайной сети кошелька.
-
----
-
-## 7. Database Schema Overview (Prisma)
+## Database schema (Prisma)
 
 ```prisma
 enum EventMode { simple secure }
@@ -181,13 +152,11 @@ model Event {
   name               String
   mode               EventMode    @default(simple)
   signerAddress      String
-  encryptedSignerKey String                        // AES-256-GCM(privKey) base64(iv|tag|ct)
+  encryptedSignerKey String                        // AES-256-GCM(privKey)
   startTime          DateTime
   endTime            DateTime
   maxSupply          Int
-  metadataUri        String                        // бейдж с надписью события
-  paymasterSpent     Int          @default(0)      // спонсированные клеймы (бюджет)
-  paymasterBudget    Int?                           // лимит, для алерта 20%
+  metadataUri        String
   createdAt          DateTime     @default(now())
   claims             ClaimToken[]
 }
@@ -197,25 +166,25 @@ model ClaimToken {
   eventId     String
   claimUUID   String   @unique                     // bytes32 hex
   signature   String
-  expiresAt   DateTime                             // simple: +30мин; secure: +~30с
-  used        Boolean  @default(false)             // UX-кэш; on-chain = истина
+  expiresAt   DateTime
+  used        Boolean  @default(false)             // UX cache; on-chain is source of truth
   recipient   String?
   txHash      String?
   createdAt   DateTime @default(now())
   event       Event    @relation(fields: [eventId], references: [id])
 
-  @@index([eventId])                               // FK-индекс
-  @@index([expiresAt])                             // для очистки протухших
+  @@index([eventId])
+  @@index([expiresAt])
 }
 ```
 
-> Дубль-проверка и TTL в БД — **UX-оптимизация**, не гарантия. Гарантия дублей — `usedClaims` on-chain.
+> The DB `used`/TTL checks are a **UX optimization**, not a guarantee. Uniqueness is
+> enforced on-chain by `usedClaims`.
 
 ---
 
-## 8. Contract Interface (AttendanceNFT.sol) — extensible
+## Contract interface (AttendanceNFT.sol)
 
-### Структура
 ```solidity
 struct EventInfo {
     address signerAddress;
@@ -223,86 +192,52 @@ struct EventInfo {
     uint64  endTime;
     uint32  maxSupply;
     uint32  minted;
-    string  uri;          // бейдж-метаданные
-    // extensible: будущие поля (verified, category) добавляются без слома usedClaims
+    string  uri;
+    // extensible: future fields (verified, category) add without breaking usedClaims
 }
-```
 
-### State
-```solidity
 mapping(uint256 => EventInfo) public events;
 mapping(bytes32 => bool)      public usedClaims;
 address public owner;
-```
 
-### Functions
-```solidity
 function createEvent(uint256 eventId, address signerAddress, uint64 startTime,
                      uint64 endTime, uint32 maxSupply, string calldata uri) external onlyOwner;
 
 function claim(uint256 eventId, bytes32 claimUUID, address recipient, bytes calldata signature) external;
-//  require(now >= startTime && now <= endTime)
-//  require(minted < maxSupply)
-//  require(!usedClaims[claimUUID])
-//  bytes32 h = keccak256(abi.encodePacked(claimUUID, eventId))
-//  bytes32 eth = toEthSignedMessageHash(h)            // EIP-191
-//  address rec = ECDSA.recover(eth, signature)
-//  require(rec != address(0) && rec == event.signerAddress)
+//  within [startTime, endTime] · minted < maxSupply · !usedClaims[claimUUID]
+//  recover EIP-191(keccak256(abi.encodePacked(claimUUID, eventId))) == signerAddress
 //  usedClaims[claimUUID]=true; minted++; _mint(recipient, eventId, 1, "")
 
 function uri(uint256 eventId) public view override returns (string memory);
-```
 
-### Events
-```solidity
 event EventCreated(uint256 indexed eventId, address signerAddress, uint64 startTime, uint64 endTime, uint32 maxSupply);
 event Claimed(uint256 indexed eventId, bytes32 indexed claimUUID, address indexed recipient);
 ```
 
-> **Extensible**: не делаем upgradeable-проксю в MVP (лишняя сложность), но структуру/события проектируем так, чтобы post-MVP фичи (verified events, soulbound, on-chain levels) добавлялись новым контрактом или новыми полями без миграции `usedClaims`. Зафиксировать формат подписи round-trip backend↔контракт в Спринте 02.
+> Not upgradeable in the MVP (avoids proxy complexity). The struct/events are designed
+> so roadmap features (verified events, soulbound, on-chain levels) can be added by a
+> new contract or new fields without migrating `usedClaims`.
 
 ---
 
-## 9. NFT Badge Metadata (бейдж с надписью)
+## Two QR modes
 
-ERC-1155 `uri(eventId)` → JSON на Pinata:
-```json
-{
-  "name": "I Was Here — <Название события>",
-  "description": "Proof of attendance: <событие>, <дата>.",
-  "image": "ipfs://<CID картинки бейджа>",
-  "attributes": [
-    { "trait_type": "Event", "value": "<название>" },
-    { "trait_type": "Date", "value": "<ISO>" },
-    { "trait_type": "Mode", "value": "simple|secure" }
-  ]
-}
-```
-- Картинка бейджа несёт **надпись события** (генерится при создании или загружается организатором).
-- Коллекция в кошельке = набор бейджей разных событий. Off-chain уровень считается по их количеству.
+| | SIMPLE | SECURE |
+|--|--------|--------|
+| Use case | small/informal events, printed stickers | larger events, shared display |
+| Token | batch of static tokens with TTL | shared QR (`/e/{id}`), 1 badge per wallet |
+| Carrier | PDF stickers / screen | one screen, on-chain `balanceOf` limit |
+| Signature | `keccak256(abi.encodePacked(claimUUID, eventId))` + EIP-191 | same |
+
+The contract does not distinguish modes — the difference is only how the backend issues
+`claimUUID`s. On-chain protection (`usedClaims`, window, supply) is shared.
 
 ---
 
-## 10. Two QR Modes
+## Open decisions
 
-| | SIMPLE | SECURE (rotating) |
-|--|--------|-------------------|
-| Кейс | малые/неформальные ивенты, печатные стикеры | массовые ивенты, защита от репоста QR |
-| Токен | пачка статичных, TTL 30мин | один ротирующийся, TTL ~30с, меняется ~15с |
-| Носитель | PDF-стикеры / экран | live-экран организатора |
-| Защита от репоста | слабая (frontrun принят) | сильная (QR протухает до репоста) |
-| Подпись | одинаковая: `keccak256(abi.encodePacked(claimUUID, eventId))` + EIP-191 | та же |
+1. Owner model — single admin (MVP) vs per-organizer factory (roadmap).
+2. Badge image — auto-generated (satori/canvas) vs organizer upload. MVP: upload + default template.
+3. Third-party contract audit before a public audience.
 
-Контракт **не различает** режимы — разница только в том, как backend выдаёт `claimUUID` и какой TTL. On-chain защита (usedClaims/окно/supply) общая.
-
----
-
-## 11. Open Decisions (остаток, не блокируют старт)
-
-1. **CDP KMS детали** — конкретный сервис/ключ-менеджмент перед mainnet (Спринт 06).
-2. **Owner-модель** — один админ для всех событий (MVP) vs фабрика на организатора (post-MVP).
-3. **Картинка бейджа** — авто-генерация надписи (canvas/satori) vs загрузка организатором. MVP: загрузка + дефолт-шаблон.
-4. **Secure live-экран** — нужен ли отдельный «kiosk»-режим/auth для экрана входа.
-5. **Аудит контракта** сторонним до mainnet с реальной аудиторией.
-
-См. также `ROADMAP.md` — post-MVP фичи (уровни on-chain, верификация оргов, проект-бейджи, recipient-binding).
+See [`ROADMAP.md`](./ROADMAP.md) for post-MVP features.
